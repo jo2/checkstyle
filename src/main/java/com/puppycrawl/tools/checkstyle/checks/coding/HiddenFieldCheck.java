@@ -32,6 +32,7 @@ import com.puppycrawl.tools.checkstyle.api.Scope;
 import com.puppycrawl.tools.checkstyle.api.TokenTypes;
 import com.puppycrawl.tools.checkstyle.utils.CheckUtil;
 import com.puppycrawl.tools.checkstyle.utils.ScopeUtil;
+import com.puppycrawl.tools.checkstyle.utils.TokenUtil;
 
 /**
  * <p>
@@ -103,7 +104,8 @@ import com.puppycrawl.tools.checkstyle.utils.ScopeUtil;
  * </li>
  * <li>
  * Property {@code tokens} - tokens to check
- * Type is {@code int[]}.
+ * Type is {@code java.lang.String[]}.
+ * Validation type is {@code tokenSet}.
  * Default value is:
  * <a href="https://checkstyle.org/apidocs/com/puppycrawl/tools/checkstyle/api/TokenTypes.html#VARIABLE_DEF">
  * VARIABLE_DEF</a>,
@@ -112,7 +114,9 @@ import com.puppycrawl.tools.checkstyle.utils.ScopeUtil;
  * <a href="https://checkstyle.org/apidocs/com/puppycrawl/tools/checkstyle/api/TokenTypes.html#PATTERN_VARIABLE_DEF">
  * PATTERN_VARIABLE_DEF</a>,
  * <a href="https://checkstyle.org/apidocs/com/puppycrawl/tools/checkstyle/api/TokenTypes.html#LAMBDA">
- * LAMBDA</a>.
+ * LAMBDA</a>,
+ * <a href="https://checkstyle.org/apidocs/com/puppycrawl/tools/checkstyle/api/TokenTypes.html#RECORD_COMPONENT_DEF">
+ * RECORD_COMPONENT_DEF</a>.
  * </li>
  * </ul>
  * <p>
@@ -247,6 +251,8 @@ public class HiddenFieldCheck
             TokenTypes.ENUM_CONSTANT_DEF,
             TokenTypes.PATTERN_VARIABLE_DEF,
             TokenTypes.LAMBDA,
+            TokenTypes.RECORD_DEF,
+            TokenTypes.RECORD_COMPONENT_DEF,
         };
     }
 
@@ -256,6 +262,7 @@ public class HiddenFieldCheck
             TokenTypes.CLASS_DEF,
             TokenTypes.ENUM_DEF,
             TokenTypes.ENUM_CONSTANT_DEF,
+            TokenTypes.RECORD_DEF,
         };
     }
 
@@ -271,6 +278,7 @@ public class HiddenFieldCheck
             case TokenTypes.VARIABLE_DEF:
             case TokenTypes.PARAMETER_DEF:
             case TokenTypes.PATTERN_VARIABLE_DEF:
+            case TokenTypes.RECORD_COMPONENT_DEF:
                 processVariable(ast);
                 break;
             case TokenTypes.LAMBDA:
@@ -291,7 +299,8 @@ public class HiddenFieldCheck
      */
     private void processLambda(DetailAST ast) {
         final DetailAST firstChild = ast.getFirstChild();
-        if (firstChild.getType() == TokenTypes.IDENT) {
+        if (firstChild != null
+                && firstChild.getType() == TokenTypes.IDENT) {
             final String untypedLambdaParameterName = firstChild.getText();
             if (frame.containsStaticField(untypedLambdaParameterName)
                 || isInstanceField(firstChild, untypedLambdaParameterName)) {
@@ -319,7 +328,8 @@ public class HiddenFieldCheck
                         && typeMods.findFirstToken(TokenTypes.LITERAL_STATIC) != null;
         final String frameName;
 
-        if (type == TokenTypes.CLASS_DEF || type == TokenTypes.ENUM_DEF) {
+        if (type == TokenTypes.CLASS_DEF
+                || type == TokenTypes.ENUM_DEF) {
             frameName = ast.findFirstToken(TokenTypes.IDENT).getText();
         }
         else {
@@ -348,6 +358,17 @@ public class HiddenFieldCheck
                 child = child.getNextSibling();
             }
         }
+        if (ast.getType() == TokenTypes.RECORD_DEF) {
+            final DetailAST recordComponents =
+                ast.findFirstToken(TokenTypes.RECORD_COMPONENTS);
+
+            // For each record component definition, we will add it to this frame.
+            TokenUtil.forEachChild(recordComponents,
+                TokenTypes.RECORD_COMPONENT_DEF, node -> {
+                    final String name = node.findFirstToken(TokenTypes.IDENT).getText();
+                    newFrame.addInstanceField(name);
+                });
+        }
         // push container
         frame = newFrame;
     }
@@ -356,7 +377,8 @@ public class HiddenFieldCheck
     public void leaveToken(DetailAST ast) {
         if (ast.getType() == TokenTypes.CLASS_DEF
             || ast.getType() == TokenTypes.ENUM_DEF
-            || ast.getType() == TokenTypes.ENUM_CONSTANT_DEF) {
+            || ast.getType() == TokenTypes.ENUM_CONSTANT_DEF
+            || ast.getType() == TokenTypes.RECORD_DEF) {
             // pop
             frame = frame.getParent();
         }
